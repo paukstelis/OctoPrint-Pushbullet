@@ -210,28 +210,32 @@ class PushbulletPlugin(octoprint.plugin.EventHandlerPlugin,
 	#~~ SimpleApiPlugin
 
 	def get_api_commands(self):
-		return dict(test=["token"])
+		return dict(test=["token"],
+					notify=["frommean"])
 
 	def on_api_command(self, command, data):
-		if not admin_permission.can():
-			return flask.make_response("Insufficient rights", 403)
+		if command == "test":
 
-		if not command == "test":
-			return
+			message = data.get("message", "Testing, 1, 2, 3, 4...")
+			token = data["token"]
+			channel = data.get("channel", None)
 
-		message = data.get("message", "Testing, 1, 2, 3, 4...")
-		token = data["token"]
-		channel = data.get("channel", None)
+			try:
+				_, sender = self._create_sender(token, channel=channel)
+			except NoSuchChannel:
+				return flask.make_response(flask.jsonify(result=False, error="channel"))
+			except pushbullet.InvalidKeyError:
+				return flask.make_response(flask.jsonify(result=False, error="apikey"))
 
-		try:
-			_, sender = self._create_sender(token, channel=channel)
-		except NoSuchChannel:
-			return flask.make_response(flask.jsonify(result=False, error="channel"))
-		except pushbullet.InvalidKeyError:
-			return flask.make_response(flask.jsonify(result=False, error="apikey"))
+			result = self._send_message_with_webcam_image("Test from the OctoPrint PushBullet Plugin", message, sender=sender)
+			return flask.make_response(flask.jsonify(result=result))
+			
+		if command == "notify":
 
-		result = self._send_message_with_webcam_image("Test from the OctoPrint PushBullet Plugin", message, sender=sender)
-		return flask.make_response(flask.jsonify(result=result))
+			message = "Last comparison was {0} standard deviations from the mean".format(data["frommean"])
+			result = self._send_message_with_webcam_image("Possible print failure", message)
+			self._logger.info("Got notify command")
+			return flask.make_response(flask.jsonify(result=result))
 
 	#~~ EventHandlerPlugin
 

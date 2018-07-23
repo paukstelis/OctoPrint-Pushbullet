@@ -211,11 +211,16 @@ class PushbulletPlugin(octoprint.plugin.EventHandlerPlugin,
 
 	def get_api_commands(self):
 		return dict(test=["token"],
-					notify=["frommean"])
+					notify=["frommean","image","filepath"])
 
 	def on_api_command(self, command, data):
+		
+		if current_user.is_anonymous():
+				return "Insufficient rights", 403
+				
 		if command == "test":
-
+			if not admin_permission.can():
+				return flask.make_response("Insufficient rights", 403)
 			message = data.get("message", "Testing, 1, 2, 3, 4...")
 			token = data["token"]
 			channel = data.get("channel", None)
@@ -231,9 +236,9 @@ class PushbulletPlugin(octoprint.plugin.EventHandlerPlugin,
 			return flask.make_response(flask.jsonify(result=result))
 			
 		if command == "notify":
-
 			message = "Last comparison was {0} standard deviations from the mean".format(data["frommean"])
-			result = self._send_message_with_webcam_image("Possible print failure", message)
+			result = self._send_message_with_file("Possible print failure", message, data["filepath"], data["image"])
+			#result = self._send_message_with_webcam_image("Possible print failure", message)
 			self._logger.info("Got notify command")
 			return flask.make_response(flask.jsonify(result=result))
 
@@ -331,6 +336,18 @@ class PushbulletPlugin(octoprint.plugin.EventHandlerPlugin,
 
 			self._send_message_with_webcam_image(title, body, filename=filename)
 
+	def _send_message_with_file(self, title, body, path, filename):
+		#This assumes path+filename is passed 
+		sender = self._sender
+
+		if not sender:
+			return False
+			
+		if self._send_file(sender, path, filename, body, remove=False):
+				return True
+		self._logger.warn("Could not send the file, sending only a note")
+		
+		
 	def _send_message_with_webcam_image(self, title, body, filename=None, sender=None):
 		if filename is None:
 			import random, string
@@ -373,7 +390,7 @@ class PushbulletPlugin(octoprint.plugin.EventHandlerPlugin,
 			return False
 		return True
 
-	def _send_file(self, sender, path, filename, body):
+	def _send_file(self, sender, path, filename, body, remove=True):
 		try:
 			with open(path, "rb") as pic:
 				try:
@@ -388,10 +405,11 @@ class PushbulletPlugin(octoprint.plugin.EventHandlerPlugin,
 			self._logger.exception("Exception while uploading snapshot to Pushbullet, sending only a note: {message}".format(message=str(e)))
 			return False
 		finally:
-			try:
-				os.remove(path)
-			except:
-				self._logger.exception("Could not remove temporary snapshot file {}".format(path))
+			if remove:
+				try:
+					os.remove(path)
+				except:
+					self._logger.exception("Could not remove temporary snapshot file {}".format(path))
 
 	def _create_sender(self, token, channel=None):
 		try:
